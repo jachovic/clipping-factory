@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Clipping Factory</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#16181d;--mute:#5d6470;--line:#e3e6ea;--acc:#2a5bd7;--good:#1a7f4b;--warn:#a15c00;--bad:#b3261e}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--panel:#1a1d23;--ink:#e8eaee;--mute:#9aa1ad;--line:#2a2e36;--acc:#7aa2ff;--good:#4cc38a;--warn:#e0a54a;--bad:#ff8a80}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:16px 10px;position:sticky;top:0;height:100vh;overflow:auto}
+nav a{display:block;padding:6px 10px;border-radius:6px;color:var(--ink);text-decoration:none}
+nav a.on{background:var(--acc);color:#fff}
+nav .brand{font-weight:700;padding:4px 10px 12px}
+main{padding:20px 24px;min-width:0}
+h1{font-size:20px;margin:0 0 4px}.state{color:var(--mute);margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.kpi b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.kpi span{color:var(--mute);font-size:12px}
+.kpi.est b{color:var(--warn)}.kpi.conf b{color:var(--good)}.kpi.cost b{color:var(--bad)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:16px;overflow:auto}
+section h2{font-size:15px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line)}
+.note{color:var(--mute);padding:6px 12px;font-size:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:600;white-space:nowrap}td{font-variant-numeric:tabular-nums}
+button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer}
+button.bad{background:var(--bad)}
+.html{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+@media (max-width:760px){.wrap{grid-template-columns:1fr}nav{position:static;height:auto;display:flex;flex-wrap:wrap;gap:4px}main{padding:16px}}
+</style>
+</head>
+<body><div class="wrap">
+<nav><div class="brand">Clipping Factory</div>
+{% for key, label in sections %}<a href="/s/{{ key }}" class="{{ 'on' if key == section }}">{{ label }}</a>{% endfor %}
+</nav>
+<main>
+<h1>{{ title }}</h1>
+<div class="state">Run state: <b>{{ run_state }}</b> · approvals waiting: {{ pending_approvals }}</div>
+{% if actions %}<div class="html">
+{% for a in actions %}
+{% if a == 'discover' %}<form method="post" action="/action/discover" style="display:inline"><button>Run discovery now</button></form>
+{% else %}<form method="post" action="/action/state" style="display:inline"><input type="hidden" name="state" value="{{ a }}"><button class="{{ 'bad' if a == 'stopped' }}">{{ {'running':'Resume','paused':'Pause new work','stopped':'EMERGENCY STOP'}[a] }}</button></form>
+{% endif %}{% endfor %}</div>{% endif %}
+{% if kpis %}<div class="kpis">{% for k, v in kpis %}<div class="kpi"><b>{{ v }}</b><span>{{ k }}</span></div>{% endfor %}</div>{% endif %}
+{% if money %}<div class="kpis">{% for k, v, cls in money %}<div class="kpi {{ cls }}"><b>${{ '%.2f' % v }}</b><span>{{ k }}</span></div>{% endfor %}</div>{% endif %}
+{% if html %}<div class="html">{{ html | safe }}</div>{% endif %}
+{% for t in tables %}<section><h2>{{ t.title }}</h2>{% if t.note %}<div class="note">{{ t.note }}</div>{% endif %}
+<table><thead><tr>{% for c in t.cols %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>
+{% for r in t.rows %}<tr>{% for v in r %}<td>
+{% if v is string and v.startswith('link:') %}<a href="{{ v[5:] }}" target="_blank" rel="noopener">open</a>
+{% elif v is string and v.startswith('clip:') %}<a href="/clip/{{ v[5:] }}.mp4" target="_blank">▶</a>
+{% elif v is string and v.startswith('approval:') %}<form method="post" action="/action/approval/{{ v[9:] }}" style="display:inline"><button name="decision" value="approved">Approve</button> <button class="bad" name="decision" value="rejected">Reject</button></form>
+{% elif v is none %}—{% else %}{{ v }}{% endif %}</td>{% endfor %}</tr>
+{% else %}<tr><td colspan="{{ t.cols|length }}" class="note">Nothing yet.</td></tr>{% endfor %}
+</tbody></table></section>{% endfor %}
+</main></div></body></html>

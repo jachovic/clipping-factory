@@ -1,0 +1,52 @@
+# 24/7 deployment: PostgreSQL + worker (scheduler & jobs) + Telegram bot + dashboard.
+# Every service restarts automatically; all state lives in Postgres and the ./data volume.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: factory
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory"]
+      interval: 10s
+      retries: 10
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["factory", "worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://factory:${POSTGRES_PASSWORD}@db:5432/factory
+    volumes: [./data:/data]
+    depends_on: {db: {condition: service_healthy}}
+
+  bot:
+    build: .
+    restart: unless-stopped
+    command: ["factory", "bot"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://factory:${POSTGRES_PASSWORD}@db:5432/factory
+    volumes: [./data:/data]
+    depends_on: {db: {condition: service_healthy}}
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: ["factory", "web", "--host", "0.0.0.0", "--port", "8080"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://factory:${POSTGRES_PASSWORD}@db:5432/factory
+    volumes: [./data:/data]
+    ports: ["127.0.0.1:8080:8080"]   # expose only via an HTTPS reverse proxy / SSH tunnel
+    depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 60s
+
+volumes:
+  pgdata:
