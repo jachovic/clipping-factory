@@ -59,6 +59,7 @@ class MarketplaceAdapter:
     display_name: str = "Base"
     home_url: str = ""
     capabilities: dict[str, str] = {}
+    listing_exhaustive: bool = True   # discover() returns every live campaign (so missing = closed)
     # Facts from the marketplace's own docs that the engine must respect.
     known_rules: dict[str, Any] = {}
 

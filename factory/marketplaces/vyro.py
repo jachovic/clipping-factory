@@ -47,12 +47,18 @@ class VyroAdapter(MarketplaceAdapter):
     capabilities = {"discover": "auto", "campaign_brief": "auto", "join": "manual", "submit": "manual",
                     "review_status": "manual", "earnings": "manual"}
     known_rules = {"api": "none (official statement)", "rate_unit": "per 1M views",
+                   "active_implies_budget": True,  # campaigns are 'Locked for new posts' once they stop
                    "review": "brief check runs after post is public (third-party report, unverified)"}
 
     def discover(self) -> list[CampaignData]:
         return parse_board(self._get(f"{BASE}/campaigns.md").text)
 
     def enrich(self, c: CampaignData) -> CampaignData:
+        html = self._get(c.url).text.replace('\\"', '"')
+        m = re.search(r'"PlatformIcons".*?"platforms":\[([^\]]*)\]', html, re.S) or \
+            re.search(r'"platforms":\[([^\]]*)\]', html)
+        if m:
+            c.platforms = sorted({p.strip('" ').replace("twitter", "x") for p in m.group(1).split(",") if p.strip('" ')})
         md = self._get(c.url + ".md").text
         c.raw["detail_md"] = md[:6000]
         c.raw["rates_may_change"] = "rates may change" in md.lower()

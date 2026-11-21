@@ -105,8 +105,38 @@ def parse_detail(html: str, c: CampaignData) -> CampaignData:
     return c
 
 
+_SITEMAP_ENTRY = re.compile(r"<loc>https://contentrewards\.com/c/campaigns/([0-9a-f-]{36})</loc>\s*<lastmod>([^<]+)</lastmod>")
+
+
+def parse_sitemap(xml: str) -> list[tuple[str, str]]:
+    return _SITEMAP_ENTRY.findall(xml)
+
+
+def campaign_from_detail(html: str, external_id: str) -> CampaignData | None:
+    """Build a full record from a public campaign page alone (used for sitemap-only campaigns)."""
+    text = rsc_text(html)
+    for obj in iter_objects(text, '{"banner"'):
+        if obj.get("id") != external_id:
+            continue
+        conf = obj.get("configuration") or {}
+        cats = ((conf.get("content") or {}).get("contentCategories") or [])
+        metrics = obj.get("metrics") or {}
+        budget = (conf.get("budget") or 0) / 100 or None
+        spent = (metrics.get("budgetSpentCents") or 0) / 100
+        c = CampaignData(marketplace="content_rewards", external_id=external_id, name=_clean(obj.get("name")),
+                         url=f"{BASE}/c/campaigns/{external_id}", brand=(obj.get("organization") or {}).get("name", ""),
+                         category=cats[0]["name"] if cats else "", payment_model=obj.get("type") or "unknown",
+                         budget_total_usd=budget,
+                         budget_available_usd=max(0.0, budget - spent) if budget else None,
+                         creator_count=metrics.get("creatorCount"),
+                         status="active" if obj.get("status") == "active" else "closed")
+        return parse_detail(html, c)
+    return None
+
+
 class ContentRewardsAdapter(MarketplaceAdapter):
     name = "content_rewards"
+    listing_exhaustive = False   # /c/discover shows a sample; the sitemap is the full index
     display_name = "Content Rewards"
     home_url = BASE
     capabilities = {
@@ -125,3 +155,9 @@ class ContentRewardsAdapter(MarketplaceAdapter):
 
     def enrich(self, c: CampaignData) -> CampaignData:
         return parse_detail(self._get(c.url).text, c)
+
+    def sitemap(self) -> list[tuple[str, str]]:
+        return parse_sitemap(self._get(f"{BASE}/sitemap.xml").text)
+
+    def fetch_campaign(self, external_id: str) -> CampaignData | None:
+        return campaign_from_detail(self._get(f"{BASE}/c/campaigns/{external_id}").text, external_id)

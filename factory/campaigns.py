@@ -28,7 +28,21 @@ _STOP = {
 }
 
 
+_LANG_NAMES = {"arabic": "ar", "spanish": "es", "español": "es", "french": "fr", "français": "fr", "german": "de",
+               "deutsch": "de", "portuguese": "pt", "brazil": "pt", "polish": "pl", "polski": "pl", "hindi": "hi",
+               "italian": "it", "turkish": "tr", "russian": "ru", "japanese": "ja", "korean": "ko"}
+_SCRIPTS = [(r"[\u0600-\u06ff]", "ar"), (r"[\u0400-\u04ff]", "ru"), (r"[\u3040-\u30ff]", "ja"),
+            (r"[\uac00-\ud7af]", "ko"), (r"[\u0900-\u097f]", "hi"), (r"[\u4e00-\u9fff]", "zh")]
+
+
 def detect_language(name: str, description: str) -> str:
+    low = name.lower()
+    for word, code in _LANG_NAMES.items():
+        if re.search(rf"\b{word}\b", low):
+            return code
+    for pat, code in _SCRIPTS:
+        if len(re.findall(pat, f"{name} {description}")) >= 10:
+            return code
     m = re.match(r"^\s*\[?(FR|ES|DE|PT|PL|IT|BR)\]?\s", name)
     if m:
         return {"BR": "pt"}.get(m.group(1), m.group(1).lower())
@@ -109,9 +123,13 @@ def discover_all(s: Session, marketplaces: list[str] | None = None, enrich_top: 
             seen_ids.add(c.id)
             n_new += "new" in ev
             n_changed += bool(set(ev) - {"new"})
+        if hasattr(adapter, "sitemap"):
+            extra = crawl_sitemap(s, adapter, seen_external={d.external_id for d in found})
+            n_new += extra["new"]
+            n_changed += extra["changed"]
         # campaigns that vanished from an exhaustive listing are treated as closed
         for c in s.scalars(select(Campaign).where(Campaign.marketplace == name, Campaign.status == "active")):
-            if c.id not in seen_ids and found:
+            if adapter.listing_exhaustive and c.id not in seen_ids and found:
                 c.status = "closed"
                 s.add(CampaignEvent(campaign_id=c.id, kind="closed", detail={"reason": "no longer listed"}))
         summary[name] = {"found": len(found), "new": n_new, "changed": n_changed}
@@ -120,6 +138,43 @@ def discover_all(s: Session, marketplaces: list[str] | None = None, enrich_top: 
     rescore_all(s)
     notify_events(s)
     return summary
+
+
+SITEMAP_FETCH_PER_CYCLE = 60
+
+
+def crawl_sitemap(s: Session, adapter, seen_external: set[str]) -> dict[str, int]:
+    """Fetch public detail pages for campaigns that are new or changed since our last read (sitemap lastmod)."""
+    out = {"new": 0, "changed": 0, "fetched": 0}
+    try:
+        entries = adapter.sitemap()
+    except Exception as e:  # noqa: BLE001
+        audit(s, "discovery", "sitemap_failed", "marketplace", adapter.name, level="warning", error=str(e)[:200])
+        return out
+    known = {c.external_id: c for c in s.scalars(select(Campaign).where(Campaign.marketplace == adapter.name))}
+    todo = []
+    for ext_id, lastmod in sorted(entries, key=lambda e: e[1], reverse=True):   # newest first
+        if ext_id in seen_external:
+            continue
+        c = known.get(ext_id)
+        if c is None or (c.raw or {}).get("sitemap_lastmod") != lastmod:
+            todo.append((ext_id, lastmod))
+    for ext_id, lastmod in todo[:SITEMAP_FETCH_PER_CYCLE]:
+        try:
+            d = adapter.fetch_campaign(ext_id)
+        except Exception as e:  # noqa: BLE001
+            audit(s, "discovery", "detail_failed", "campaign", ext_id, level="warning", error=str(e)[:200])
+            continue
+        out["fetched"] += 1
+        if d is None:
+            continue
+        d.raw["sitemap_lastmod"] = lastmod
+        _, ev = upsert_campaign(s, d)
+        out["new"] += "new" in ev
+        out["changed"] += bool(set(ev) - {"new"})
+    out["backlog"] = max(0, len(todo) - SITEMAP_FETCH_PER_CYCLE)
+    audit(s, "discovery", "sitemap_crawl", "marketplace", adapter.name, **out)
+    return out
 
 
 def notify_events(s: Session) -> None:
@@ -281,7 +336,9 @@ def rescore_all(s: Session) -> None:
         c.profitability = profitability(s, c)      # first: the score uses it
         c.score, c.score_breakdown = score_campaign(s, c, accounts)
         c.priority = priority_for(c.score) if c.status == "active" else "LOW"
-        if c.priority == "HIGH" and (not c.platforms or c.budget_available_usd is None):
+        budget_known = c.budget_available_usd is not None or \
+            ADAPTERS.get(c.marketplace, None) is not None and ADAPTERS[c.marketplace].known_rules.get("active_implies_budget")
+        if c.priority == "HIGH" and (not c.platforms or not budget_known):
             c.priority = "MEDIUM"   # not enough verified information to commit production
 
 

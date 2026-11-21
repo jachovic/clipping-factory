@@ -95,7 +95,17 @@ def test_profit_capped_by_budget_and_video_cap(s):
     assert camp.clip_gross(c, 1_000_000) == 1
 
 
+def test_sitemap_parse_and_listing_flag():
+    from factory.marketplaces import ADAPTERS
+    from factory.marketplaces.content_rewards import parse_sitemap
+    xml = ("<url><loc>https://contentrewards.com/c/campaigns/6b1b00c6-14ca-4d33-a7c7-0018b4f9673e</loc>\n"
+           "<lastmod>2026-11-21T15:33:26.000Z</lastmod></url>")
+    assert parse_sitemap(xml) == [("6b1b00c6-14ca-4d33-a7c7-0018b4f9673e", "2026-11-21T15:33:26.000Z")]
+    assert ADAPTERS["content_rewards"].listing_exhaustive is False and ADAPTERS["vyro"].listing_exhaustive is True
+
+
 def test_language_detection():
+    assert camp.detect_language("Sherine Music || Arabic Campaign", "") == "ar"
     assert camp.detect_language("FR Yomi Denzel", "") == "fr"
     assert camp.detect_language("Clip campaign", "You must clip the stream and post with the hashtag for this brand") == "en"
 
