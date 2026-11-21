@@ -80,6 +80,9 @@ def parse_detail(html: str, c: CampaignData) -> CampaignData:
         if st and st != "active":
             c.status = "closed" if st in ("completed", "ended", "canceled", "cancelled", "paused") else st
         conf = obj.get("configuration") or {}
+        types = [t.get("id") for t in ((conf.get("content") or {}).get("contentTypes") or []) if t.get("id")]
+        if types:
+            c.raw["content_types"] = types
         # a platform entry with rate 0 is not paid -> ignore it entirely
         models = [m for m in (conf.get("payoutModel") or []) if (m.get("rate") or 0) > 0 or c.payment_model != "cpm"]
         if models:

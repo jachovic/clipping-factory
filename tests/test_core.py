@@ -78,6 +78,15 @@ def test_upsert_change_detection_and_scoring(s):
     assert c.score == 0 and c.priority == "LOW"
 
 
+def test_ugc_campaigns_not_producible(s):
+    seed(s)
+    c, _ = camp.upsert_campaign(s, _cd(external_id="ugc", raw={"content_types": ["ugc-with-face"]}))
+    ok, _ = camp.upsert_campaign(s, _cd(external_id="clip", raw={"content_types": ["clipping", "ugc-faceless"]}))
+    camp.rescore_all(s)
+    assert c.score == 0 and c.priority == "LOW"
+    assert ok.score > 0
+
+
 def test_min_payout_threshold_kills_expected_value(s):
     seed(s)
     hi, _ = camp.upsert_campaign(s, _cd(external_id="a"))

@@ -261,9 +261,20 @@ def profitability(s: Session, c: Campaign, clips: int = 6, cost_per_clip: float 
 
 
 # ------------------------------------------------------------------ scoring
+# Content types this factory can produce. UGC (filming yourself) and slideshows are out of scope.
+PRODUCIBLE_TYPES = {"clipping"}
+
+
+def producible(c: Campaign) -> bool:
+    types = (c.raw or {}).get("content_types")
+    return True if not types else bool(PRODUCIBLE_TYPES & set(types))
+
+
 def score_campaign(s: Session, c: Campaign, accounts: list[SocialAccount]) -> tuple[float, dict[str, float]]:
     if c.status != "active":
         return 0.0, {"inactive": 0.0}
+    if not producible(c):
+        return 0.0, {"not_producible": 0.0}
     b: dict[str, float] = {}
     # 1. headline rate (15)
     if c.payment_model == "cpm":
@@ -335,7 +346,7 @@ def rescore_all(s: Session) -> None:
     for c in s.scalars(select(Campaign)):
         c.profitability = profitability(s, c)      # first: the score uses it
         c.score, c.score_breakdown = score_campaign(s, c, accounts)
-        c.priority = priority_for(c.score) if c.status == "active" else "LOW"
+        c.priority = priority_for(c.score) if c.status == "active" and producible(c) else "LOW"
         budget_known = c.budget_available_usd is not None or \
             ADAPTERS.get(c.marketplace, None) is not None and ADAPTERS[c.marketplace].known_rules.get("active_implies_budget")
         if c.priority == "HIGH" and (not c.platforms or not budget_known):
