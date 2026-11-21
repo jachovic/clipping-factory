@@ -270,3 +270,16 @@ def test_dashboard_pages_render(s):
         r = client.get(f"/s/{key}")
         assert r.status_code == 200, key
     assert client.get("/healthz").json()["ok"] is True
+
+
+def test_cost_metrics_and_subscriptions(s):
+    import json as _json
+    from factory.manager import cost_metrics, h_subscriptions, period_report
+    from factory.ops import set_flag
+    set_flag(s, "subscriptions", _json.dumps({"crayo": 30}))
+    h_subscriptions(s, None)
+    h_subscriptions(s, None)                 # idempotent within a month
+    s.flush()
+    m = cost_metrics(s)
+    assert m["costs"] == 30 and m["received"] == 0 and m["net"] == -30
+    assert "Weekly report" in period_report(s, 7)

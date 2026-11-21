@@ -175,7 +175,7 @@ HANDLERS = {"discover": h_discover, "select": h_select, "inbox": h_inbox, "produ
 
 # kind -> period in minutes
 SCHEDULE = {"discover": 120, "inbox": 5, "deadlines": 15, "metrics": 360, "integrations": 720,
-            "growth": 1440, "backup": 1440}
+            "growth": 1440, "backup": 1440, "subscriptions": 720}
 DAILY_REPORT_HOUR_UTC = 7
 
 
@@ -186,6 +186,10 @@ def schedule_periodic(s: Session) -> None:
         enqueue(s, kind, {}, dedupe_key=f"{kind}:{bucket}", max_attempts=2)
     if t.hour == DAILY_REPORT_HOUR_UTC:
         enqueue(s, "daily_report", {}, dedupe_key=f"daily_report:{t:%Y-%m-%d}")
+        if t.weekday() == 0:
+            enqueue(s, "period_report", {"days": 7}, dedupe_key=f"weekly_report:{t:%Y-%m-%d}")
+        if t.day == 1:
+            enqueue(s, "period_report", {"days": 30}, dedupe_key=f"monthly_report:{t:%Y-%m}")
 
 
 def worker_loop(once: bool = False, idle_sleep: float = 5.0) -> None:
@@ -251,6 +255,80 @@ def overview(s: Session) -> dict[str, Any]:
     }
 
 
+def cost_metrics(s: Session, since: dt.datetime | None = None) -> dict[str, Any]:
+    """Unit economics. Revenue uses ONLY money received (ledger 'paid')."""
+    def total(kind: str, status: str | None = None, campaign_id: int | None = None) -> float:
+        q = select(func.coalesce(func.sum(LedgerEntry.amount_usd), 0.0)).where(LedgerEntry.kind == kind)
+        if status:
+            q = q.where(LedgerEntry.status == status)
+        if since:
+            q = q.where(LedgerEntry.at >= since)
+        if campaign_id is not None:
+            q = q.where(LedgerEntry.campaign_id == campaign_id)
+        return float(s.scalar(q) or 0)
+    clip_q = select(func.count()).select_from(Clip).where(Clip.status != "failed")
+    appr_q = select(func.count()).select_from(Submission).where(
+        Submission.status.in_(["approved", "earning", "pending_payout", "paid"]))
+    elig_q = select(func.coalesce(func.sum(Submission.eligible_views), 0))
+    if since:
+        clip_q = clip_q.where(Clip.created_at >= since)
+        appr_q = appr_q.where(Submission.created_at >= since)
+        elig_q = elig_q.where(Submission.created_at >= since)
+    clips, approved, eligible = s.scalar(clip_q) or 0, s.scalar(appr_q) or 0, int(s.scalar(elig_q) or 0)
+    costs, received = total("cost"), total("revenue", "paid")
+    per_campaign = []
+    for c in s.scalars(select(Campaign).where(Campaign.id.in_(select(LedgerEntry.campaign_id).distinct()))):
+        cc, rc = total("cost", campaign_id=c.id), total("revenue", "paid", campaign_id=c.id)
+        per_campaign.append({"id": c.id, "name": c.name[:40], "costs": round(cc, 2), "received": round(rc, 2),
+                             "net": round(rc - cc, 2)})
+    div = lambda a, b: round(a / b, 4) if b else None  # noqa: E731
+    return {"costs": round(costs, 2), "received": round(received, 2), "net": round(received - costs, 2),
+            "clips": clips, "approved_clips": approved, "eligible_views": eligible,
+            "cost_per_clip": div(costs, clips), "cost_per_approved_clip": div(costs, approved),
+            "cost_per_1k_eligible_views": div(costs * 1000, eligible), "per_campaign": per_campaign}
+
+
+def period_report(s: Session, days: int) -> str:
+    since = now() - dt.timedelta(days=days)
+    m = cost_metrics(s, since)
+    cnt = lambda *w: s.scalar(select(func.count()).select_from(w[0]).where(*w[1:])) or 0  # noqa: E731
+    label = {7: "Weekly", 30: "Monthly"}.get(days, f"{days}-day")
+    lines = [f"{label} report — last {days} days",
+             f"New campaigns: {cnt(Campaign, Campaign.first_seen_at >= since)} · clips: {m['clips']} · "
+             f"published: {cnt(Submission, Submission.published_at >= since)} · approved: {m['approved_clips']} · "
+             f"rejected: {cnt(Submission, Submission.status == 'rejected', Submission.updated_at >= since)}",
+             f"Eligible views: {m['eligible_views']:,}",
+             f"Cash: received ${m['received']:.2f} − costs ${m['costs']:.2f} = net ${m['net']:.2f}",
+             f"Cost/clip {m['cost_per_clip']} · cost/approved clip {m['cost_per_approved_clip']} · "
+             f"cost per 1k eligible views {m['cost_per_1k_eligible_views']}"]
+    lines += [f" • #{p['id']} {p['name']}: net ${p['net']}" for p in m["per_campaign"][:10]]
+    from .growth import breakdowns, recommendations
+    lines += ["Growth:"] + [f" • {r}" for r in recommendations(breakdowns(s))]
+    return "\n".join(lines)
+
+
+def h_period_report(s: Session, job: Job) -> dict:
+    days = int(job.payload.get("days", 7))
+    notify(s, "daily_report", period_report(s, days))
+    return {"days": days}
+
+
+def h_subscriptions(s: Session, job: Job) -> dict:
+    """Book each configured monthly subscription once per month (setting 'subscriptions' = JSON {name: usd})."""
+    import json as _json
+    from .ops import get_flag
+    subs = _json.loads(get_flag(s, "subscriptions", "{}") or "{}")
+    month = now().strftime("%Y-%m")
+    booked = []
+    for name, usd in subs.items():
+        note = f"{name} {month}"
+        exists = s.scalar(select(LedgerEntry).where(LedgerEntry.category == "subscription", LedgerEntry.note == note))
+        if not exists:
+            s.add(LedgerEntry(kind="cost", category="subscription", amount_usd=float(usd), status="paid", note=note))
+            booked.append(name)
+    return {"booked": booked}
+
+
 def daily_report(s: Session) -> str:
     o = overview(s)
     top = camp.recommend_allocation(s, top=3)
@@ -267,3 +345,6 @@ def daily_report(s: Session) -> str:
              "Top opportunities:"]
     lines += [f" • #{t['id']} {t['name'][:50]} [{t['marketplace']}] {t['rate']} score {t['score']:.0f}" for t in top]
     return "\n".join(lines)
+
+
+HANDLERS.update({"period_report": h_period_report, "subscriptions": h_subscriptions})

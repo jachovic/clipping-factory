@@ -19,7 +19,7 @@ from .models import (Approval, Campaign, Clip, Experiment, Integration, Job, Led
 from .ops import audit, enqueue, set_flag, session
 
 HELP = """Commands
-/status /report /dailyplan /manager — system state & plans
+/status /report /weekly /monthly /dailyplan /manager — state, reports & plans
 /campaigns /discover /opportunities /campaign <id>
 /accounts /integrations
 /production /queue /submissions
@@ -115,6 +115,13 @@ def c_costs(s: Session, a: list[str]) -> str:
         agg[cat] = agg.get(cat, 0) + amt
     return _table([f"{k}: ${v:.2f}" for k, v in agg.items()]) + \
         f"\nLimits: ${settings.daily_spend_limit_usd}/day, ${settings.monthly_spend_limit_usd}/month"
+
+
+def c_period(days: int) -> Callable[[Session, list[str]], str]:
+    def f(s: Session, a: list[str]) -> str:
+        from .manager import period_report
+        return period_report(s, days)
+    return f
 
 
 def c_strategy(s: Session, a: list[str]) -> str:
@@ -224,7 +231,7 @@ COMMANDS: dict[str, Callable[[Session, list[str]], str]] = {
     "pause": c_state("paused"), "resume": c_state("running"), "stopall": c_state("stopped"),
     "approve": c_decide("approved"), "reject": c_decide("rejected"), "help": lambda s, a: HELP,
     "start": lambda s, a: HELP, "posted": c_posted, "submitted": c_submitted, "rejected": c_rejected,
-    "approved": c_approved, "paid": c_paid, "source": c_source,
+    "approved": c_approved, "paid": c_paid, "source": c_source, "weekly": c_period(7), "monthly": c_period(30),
 }
 
 

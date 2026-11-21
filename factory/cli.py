@@ -34,6 +34,11 @@ def main(argv: list[str] | None = None) -> None:
     ak.add_argument("--platform", required=True)
     ak.add_argument("--niche", required=True)
     ak.add_argument("--language", default="en")
+    sb = sub.add_parser("subscription", help="set a monthly subscription cost, e.g. subscription crayo 29.99 (0 removes)")
+    sb.add_argument("name")
+    sb.add_argument("usd", type=float)
+    rp = sub.add_parser("costs", help="unit economics: cost per clip / approved clip / 1k eligible views")
+    rp.add_argument("--days", type=int, default=0)
     sub.add_parser("worker", help="run the scheduler + job worker (long-running)")
     sub.add_parser("bot", help="run the Telegram bot (long-running)")
     w = sub.add_parser("web", help="run the dashboard")
@@ -99,6 +104,22 @@ def main(argv: list[str] | None = None) -> None:
             print(f"updated {acc.label}")
     elif a.cmd == "account-kit":
         print(account_kit(a.platform, a.niche, a.language))
+    elif a.cmd == "subscription":
+        from .ops import get_flag, set_flag
+        with session() as s:
+            subs = json.loads(get_flag(s, "subscriptions", "{}") or "{}")
+            if a.usd > 0:
+                subs[a.name] = a.usd
+            else:
+                subs.pop(a.name, None)
+            set_flag(s, "subscriptions", json.dumps(subs))
+            print("monthly subscriptions:", subs)
+    elif a.cmd == "costs":
+        import datetime as dt
+        from .manager import cost_metrics
+        from .models import now
+        with session() as s:
+            print(json.dumps(cost_metrics(s, now() - dt.timedelta(days=a.days) if a.days else None), indent=2))
     elif a.cmd == "worker":
         from .manager import worker_loop
         worker_loop()
