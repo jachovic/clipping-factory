@@ -1,5 +1,7 @@
 # Clipping Factory
 
+> **Polski przewodnik uruchomienia: [START_TUTAJ.md](START_TUTAJ.md)**
+
 An autonomous operation for paid clipping campaigns:
 **discover → score → select → produce → QC → publish → submit → monitor → optimize.**
 Start with `PROJECT_STATUS.md`. Platform facts are in `INTEGRATIONS.md`, design in `ARCHITECTURE.md`, and open work in `TASKS.md`.
