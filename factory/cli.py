@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> None:
     w = sub.add_parser("web", help="run the dashboard")
     w.add_argument("--host", default="127.0.0.1")
     w.add_argument("--port", type=int, default=8080)
+    r = sub.add_parser("run", help="all-in-one: worker + Telegram bot (if configured) + dashboard (for a single PC)")
+    r.add_argument("--port", type=int, default=8080)
     sub.add_parser("report", help="print the daily report")
     sub.add_parser("backup", help="back up the database now")
     a = p.parse_args(argv)
@@ -106,6 +108,8 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "web":
         import uvicorn
         uvicorn.run("factory.dashboard.app:app", host=a.host, port=a.port, proxy_headers=True)
+    elif a.cmd == "run":
+        run_all(a.port)
     elif a.cmd == "report":
         from .manager import daily_report
         with session() as s:
@@ -113,6 +117,44 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "backup":
         from .backup import backup_db
         print(backup_db())
+
+
+def run_all(port: int) -> None:
+    """Single-machine mode. Each component runs in a supervised thread that restarts after a crash."""
+    import threading
+    import time
+
+    import uvicorn
+
+    from .config import secret_present
+    from .growth import seed_experiments
+    from .integrations import seed, write_status_md
+    from .manager import worker_loop
+    from .ops import session
+
+    with session() as s:
+        seed(s)
+        seed_experiments(s)
+        write_status_md(s)
+
+    def supervised(name, fn):
+        def loop():
+            while True:
+                try:
+                    fn()
+                except Exception:  # noqa: BLE001
+                    logging.getLogger("factory").exception("%s crashed; restarting in 30 s", name)
+                    time.sleep(30)
+        threading.Thread(target=loop, name=name, daemon=True).start()
+
+    supervised("worker", worker_loop)
+    if secret_present("TELEGRAM_BOT_TOKEN"):
+        from .telegram_bot import run_bot
+        supervised("telegram", run_bot)
+    else:
+        logging.getLogger("factory").warning("TELEGRAM_BOT_TOKEN not set: bot disabled, notifications go to the audit log")
+    print(f"Dashboard: http://127.0.0.1:{port}")
+    uvicorn.run("factory.dashboard.app:app", host="127.0.0.1", port=port)
 
 
 def account_kit(platform: str, niche: str, language: str) -> str:

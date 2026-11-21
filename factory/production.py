@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .models import Campaign, Clip, SourceAsset
 
-FONT = os.environ.get("CAPTION_FONT", "DejaVu Sans")
+FONT = os.environ.get("CAPTION_FONT", "Arial" if os.name == "nt" else "DejaVu Sans")
 
 
 # ------------------------------------------------------------------ helpers

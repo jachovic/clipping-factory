@@ -42,6 +42,7 @@ class CampaignData:
     creator_count: int | None = None
     submission_count: int | None = None
     brief_complete: bool = False
+    source_links: list[str] = field(default_factory=list)  # links named in the brief (footage, channels, docs)
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -99,3 +100,14 @@ def parse_money(label: str | None) -> tuple[float | None, float | None]:
     if not nums:
         return None, None
     return min(nums), max(nums)
+
+
+def extract_links(text: str | None) -> list[str]:
+    """URLs mentioned in a campaign brief, in order, de-duplicated."""
+    import re
+    seen: list[str] = []
+    for u in re.findall(r"https?://[^\s<>()\[\]\"']+", text or ""):
+        u = u.rstrip(".,;:!?")
+        if u not in seen:
+            seen.append(u)
+    return seen

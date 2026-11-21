@@ -19,6 +19,17 @@ Produce from an authorised source file:
 factory produce --campaign 2 --file brief_video.mp4 --rights "Official footage from campaign brief <url>"
 ```
 
+## Run 24/7 on your Windows PC (recommended to start: free)
+1. Download the project (green **Code → Download ZIP** on GitHub, or `git clone`), unzip e.g. to `C:\clipping-factory`.
+2. Open PowerShell in that folder and run:
+   `powershell -ExecutionPolicy Bypass -File windows\install.ps1`
+   This installs Python + FFmpeg (winget), the app, creates `.env`, and registers an autostart task (restarts on failure).
+3. Dashboard: http://127.0.0.1:8080 · logs: `data\factory.log` · stop: `windows\stop.ps1`.
+4. Set Windows sleep to **Never** while plugged in. Add Telegram/Crayo keys to `.env` later and restart the task.
+
+The PC must be on for the factory to run. For true 24/7, use a VPS (below); Oracle Cloud's "Always Free" ARM VM
+(4 cores, 24 GB RAM) is enough and costs $0, but sign-up needs your own card verification.
+
 ## Deploy 24/7 (any Linux VPS, 4 GB RAM+)
 ```bash
 git clone <your repo> clipping-factory && cd clipping-factory

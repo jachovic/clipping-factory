@@ -16,7 +16,7 @@ import json
 import re
 from typing import Any, Iterator
 
-from .base import CampaignData, MarketplaceAdapter, parse_money
+from .base import CampaignData, MarketplaceAdapter, extract_links, parse_money
 
 BASE = "https://contentrewards.com"
 _PUSH = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)</script>', re.S)
@@ -75,6 +75,7 @@ def parse_detail(html: str, c: CampaignData) -> CampaignData:
         if obj.get("id") != c.external_id:
             continue
         c.description = _clean(obj.get("description")) or c.description
+        c.source_links = extract_links(c.description)
         st = obj.get("status")
         if st and st != "active":
             c.status = "closed" if st in ("completed", "ended", "canceled", "cancelled", "paused") else st

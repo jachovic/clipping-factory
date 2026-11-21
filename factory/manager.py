@@ -53,7 +53,9 @@ def h_select(s: Session, job: Job) -> dict:
         (INBOX / str(row.id)).mkdir(parents=True, exist_ok=True)
         audit(s, "manager", "campaign_selected", "campaign", row.id, score=row.score)
         notify(s, "new_campaign", f"Selected campaign {row.id}: {row.name} ({row.marketplace}, {camp.fmt_rate(row)}).\n"
-                                  f"1) Join it: {row.url}\n2) Put the official source video(s) from its brief into "
+                                  f"1) Join it: {row.url}\n"
+                                  + (f"Footage named in the brief: {', '.join(row.source_links[:5])}\n" if row.source_links else "")
+                                  + f"2) Put the official source video(s) from its brief into "
                                   f"data/inbox/{row.id}/ (or /source {row.id} <direct-url>).")
     return {"selected": [c.id for c in picked]}
 

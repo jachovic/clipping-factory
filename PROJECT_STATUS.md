@@ -1,4 +1,11 @@
-# PROJECT_STATUS — 2026-11-20 (session 1)
+# PROJECT_STATUS — 2026-11-21 (session 2)
+
+**Session 2:** added single-PC mode (`factory run`), Windows installer with autostart, brief-link extraction for
+source footage. Factory running continuously in the cloud container as a *temporary* server (state lost when the
+container is recycled). Live: 29 active campaigns, 10 HIGH, 4 selected.
+
+---
+
 
 ## Bottom line
 The factory's software is built and tested. Campaign discovery works on **live** data, and the local clip engine
