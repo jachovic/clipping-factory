@@ -12,7 +12,9 @@ cp .env.example .env && chmod 600 .env       # fill in what you have
 .venv/bin/factory discover                   # live campaigns from Content Rewards + Vyro
 .venv/bin/factory campaigns                  # ranked, with expected net
 .venv/bin/factory integrations --test        # writes INTEGRATION_STATUS.md
-.venv/bin/python -m pytest -q                # 22 tests
+.venv/bin/python -m pytest -q                # 25 tests
+.venv/bin/factory costs                      # unit economics
+.venv/bin/factory subscription crayo 29.99   # book a monthly fixed cost
 ```
 Produce from an authorised source file:
 ```bash

@@ -1,4 +1,9 @@
-# PROJECT_STATUS — 2026-11-21 (session 2)
+# PROJECT_STATUS — 2026-11-21 (session 3)
+
+**Session 3:** see `SESSION_REPORT.md`. Sitemap-based full Content Rewards coverage (97 tracked, 24 HIGH), UGC exclusion,
+Vyro platforms, cost metrics + weekly/monthly reports, CI. Your to-do list is at the top of `TASKS.md`.
+
+# Session 2
 
 **Session 2:** added single-PC mode (`factory run`), Windows installer with autostart, brief-link extraction for
 source footage. Factory running continuously in the cloud container as a *temporary* server (state lost when the
