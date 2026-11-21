@@ -178,9 +178,7 @@ def test_stale_job_recovery(s):
 
 # ------------------------------------------------------------ money & safety
 def test_spend_limits(s, monkeypatch):
-    import dataclasses
-    from factory import ops
-    monkeypatch.setattr(ops, "settings", dataclasses.replace(ops.settings, daily_spend_limit_usd=1.0))
+    monkeypatch.setenv("DAILY_SPEND_LIMIT_USD", "1.0")
     record_cost(s, "crayo_credits", 0.8)
     s.flush()
     check_spend(s, 0.1, "ok")
@@ -283,3 +281,50 @@ def test_cost_metrics_and_subscriptions(s):
     m = cost_metrics(s)
     assert m["costs"] == 30 and m["received"] == 0 and m["net"] == -30
     assert "Weekly report" in period_report(s, 7)
+
+
+def test_setup_page_saves_env_and_blocks_cross_origin(s, tmp_path, monkeypatch):
+    import os
+    from fastapi.testclient import TestClient
+    from factory import config
+    from factory.dashboard.app import app
+    env = tmp_path / ".env"
+    env.write_text("# comment\nDAILY_SPEND_LIMIT_USD=5\n")
+    monkeypatch.setattr(config, "ENV_FILE", env)
+    monkeypatch.delenv("CRAYO_API_KEY", raising=False)
+    seed(s)
+    s.commit()
+    c = TestClient(app)
+    assert c.get("/s/setup").status_code == 200
+    r = c.post("/setup/save", data={"CRAYO_API_KEY": "crayo_sk_test", "DAILY_SPEND_LIMIT_USD": "7"},
+               follow_redirects=False)
+    assert r.status_code == 303
+    text = env.read_text()
+    assert "crayo_sk_test" in text and "DAILY_SPEND_LIMIT_USD=7" in text and "# comment" in text
+    assert os.environ["CRAYO_API_KEY"] == "crayo_sk_test"
+    page = c.get("/s/setup").text
+    assert "crayo_sk_test" not in page and "ustawione" in page        # never echoed back
+    bad = c.post("/setup/save", data={"CRAYO_API_KEY": "x"}, headers={"origin": "https://evil.example"})
+    assert bad.status_code == 403
+    monkeypatch.delenv("CRAYO_API_KEY", raising=False)
+
+
+def test_upload_source_goes_to_inbox(s):
+    from fastapi.testclient import TestClient
+    from factory.config import settings
+    from factory.dashboard.app import app
+    from factory.models import Job
+    c, _ = camp.upsert_campaign(s, _cd(external_id="up"))
+    c.selected = True
+    s.commit()
+    client = TestClient(app)
+    assert "Wgraj" in client.get("/s/setup").text
+    r = client.post(f"/upload/{c.id}", files={"file": ("brief clip.mp4", b"\x00" * 1024, "video/mp4")},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert (settings.data_dir / "inbox" / str(c.id) / "briefclip.mp4").exists()
+    bad = client.post(f"/upload/{c.id}", files={"file": ("x.exe", b"MZ", "application/octet-stream")},
+                      follow_redirects=False)
+    assert "wideo" in bad.headers["location"]
+    s.expire_all()
+    assert s.query(Job).filter(Job.kind == "inbox").count() >= 1

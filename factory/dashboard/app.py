@@ -21,9 +21,22 @@ from ..models import (Approval, AuditLog, Campaign, CampaignEvent, Clip, Complia
 from ..ops import audit, enqueue, set_flag, session
 
 app = FastAPI(title="Clipping Factory", docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def same_origin_posts(request: Request, call_next):
+    """Block cross-site form posts (a web page you visit must not be able to change settings here)."""
+    if request.method == "POST":
+        from urllib.parse import urlparse
+        src = request.headers.get("origin") or request.headers.get("referer") or ""
+        host = request.headers.get("host", "")
+        if src and urlparse(src).netloc != host:
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse("cross-origin request blocked", status_code=403)
+    return await call_next(request)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-SECTIONS = [("overview", "Overview"), ("manager", "AI Agency Manager"), ("discovery", "Campaign Discovery"),
+SECTIONS = [("setup", "⚙ Konfiguracja"), ("overview", "Overview"), ("manager", "AI Agency Manager"), ("discovery", "Campaign Discovery"),
             ("intelligence", "Campaign Intelligence"), ("profitability", "Campaign Profitability"),
             ("integrations", "Integration Setup"), ("accounts", "Social Accounts"),
             ("account_factory", "Account Factory"), ("videos", "Video Library"), ("factory", "AI Clipping Factory"),
@@ -53,7 +66,13 @@ def T(title: str, cols: list[str], rows: list[list[Any]], note: str = "") -> dic
     return {"title": title, "cols": cols, "rows": rows, "note": note}
 
 
-def build(section: str) -> dict[str, Any]:
+def build(section: str, msg: str = "") -> dict[str, Any]:
+    if section == "setup":
+        from .setup_page import render
+        with session() as s:
+            o = overview(s)
+        return {"kpis": [], "tables": [], "html": render(msg), "run_state": o["run_state"],
+                "pending_approvals": o["pending_approvals"]}
     with session() as s:
         o = overview(s)
         ctx: dict[str, Any] = {"kpis": [], "tables": [], "html": ""}
@@ -206,7 +225,13 @@ def login(token: str):
 def page(request: Request, section: str = "overview", _: None = Depends(auth)):
     if section not in dict(SECTIONS):
         raise HTTPException(404)
-    ctx = build(section)
+    ctx = build(section, request.query_params.get("msg", "")[:500])
+    if section == "overview":
+        from .setup_page import missing_essentials
+        todo = missing_essentials()
+        if todo:
+            ctx["html"] = (f"<b>Konfiguracja niedokończona:</b> {', '.join(todo)}. "
+                           "<a href='/s/setup'>Przejdź do Konfiguracji →</a>") + ctx.get("html", "")
     return templates.TemplateResponse(request, "page.html", {"sections": SECTIONS, "section": section,
                                                              "title": dict(SECTIONS)[section], **ctx})
 
@@ -257,3 +282,8 @@ def healthz():
     with session() as s:
         o = overview(s)
     return {"ok": True, "run_state": o["run_state"], "jobs_queued": o["jobs_queued"]}
+
+
+from .setup_page import router as _setup_router  # noqa: E402
+
+app.include_router(_setup_router)

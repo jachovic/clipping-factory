@@ -169,12 +169,15 @@ def run_all(port: int) -> None:
         threading.Thread(target=loop, name=name, daemon=True).start()
 
     supervised("worker", worker_loop)
-    if secret_present("TELEGRAM_BOT_TOKEN"):
+
+    def telegram_when_configured():
+        # the bot starts as soon as a token is saved on the setup page — no restart needed
+        while not secret_present("TELEGRAM_BOT_TOKEN"):
+            time.sleep(15)
         from .telegram_bot import run_bot
-        supervised("telegram", run_bot)
-    else:
-        logging.getLogger("factory").warning("TELEGRAM_BOT_TOKEN not set: bot disabled, notifications go to the audit log")
-    print(f"Dashboard: http://127.0.0.1:{port}")
+        run_bot()
+    supervised("telegram", telegram_when_configured)
+    print(f"Dashboard: http://127.0.0.1:{port}  (setup: http://127.0.0.1:{port}/s/setup)")
     uvicorn.run("factory.dashboard.app:app", host="127.0.0.1", port=port)
 
 
