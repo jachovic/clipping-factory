@@ -36,7 +36,7 @@ async def same_origin_posts(request: Request, call_next):
     return await call_next(request)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-SECTIONS = [("setup", "⚙ Konfiguracja"), ("overview", "Overview"), ("manager", "AI Agency Manager"), ("discovery", "Campaign Discovery"),
+SECTIONS = [("setup", "⚙ Konfiguracja"), ("todo", "✅ Do zrobienia"), ("overview", "Overview"), ("manager", "AI Agency Manager"), ("discovery", "Campaign Discovery"),
             ("intelligence", "Campaign Intelligence"), ("profitability", "Campaign Profitability"),
             ("integrations", "Integration Setup"), ("accounts", "Social Accounts"),
             ("account_factory", "Account Factory"), ("videos", "Video Library"), ("factory", "AI Clipping Factory"),
@@ -67,12 +67,12 @@ def T(title: str, cols: list[str], rows: list[list[Any]], note: str = "") -> dic
 
 
 def build(section: str, msg: str = "") -> dict[str, Any]:
-    if section == "setup":
-        from .setup_page import render
+    if section in ("setup", "todo"):
+        from .setup_page import render, render_todo
         with session() as s:
             o = overview(s)
-        return {"kpis": [], "tables": [], "html": render(msg), "run_state": o["run_state"],
-                "pending_approvals": o["pending_approvals"]}
+        return {"kpis": [], "tables": [], "html": (render if section == "setup" else render_todo)(msg),
+                "run_state": o["run_state"], "pending_approvals": o["pending_approvals"]}
     with session() as s:
         o = overview(s)
         ctx: dict[str, Any] = {"kpis": [], "tables": [], "html": ""}
@@ -262,7 +262,7 @@ def action_approval(aid: int, decision: str = Form(...), _: None = Depends(auth)
         if a and a.status == "pending" and decision in ("approved", "rejected"):
             a.status, a.decided_at = decision, now()
             audit(s, "owner", f"approval_{decision}", "approval", aid, via="dashboard")
-    return RedirectResponse("/s/manager", status_code=303)
+    return RedirectResponse("/s/todo", status_code=303)
 
 
 @app.get("/clip/{cid}.mp4")

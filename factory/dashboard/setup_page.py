@@ -237,3 +237,85 @@ async def source_link(campaign_id: int, request: Request, _: None = Depends(_aut
     with session() as s:
         enqueue(s, "fetch_source", {"campaign_id": campaign_id, "url": url})
     return RedirectResponse("/s/setup?msg=Pobieranie dodane do kolejki.", status_code=303)
+
+
+# ------------------------------------------------------------------ to-do page
+def render_todo(msg: str = "") -> str:
+    from ..models import Approval, Campaign, Clip, Submission
+    from ..qc import youtube_title
+    with session() as s:
+        accs = {a.id: a for a in s.scalars(select(SocialAccount))}
+        camps = {c.id: c for c in s.scalars(select(Campaign))}
+        pub = list(s.scalars(select(Submission).where(Submission.status == "ready_to_publish")
+                             .order_by(Submission.scheduled_for)))
+        sub = list(s.scalars(select(Submission).where(Submission.status == "awaiting_submission")
+                             .order_by(Submission.submission_deadline_at)))
+        appr = list(s.scalars(select(Approval).where(Approval.status == "pending")))
+        clips = {c.id: c for c in s.scalars(select(Clip).where(Clip.id.in_([x.clip_id for x in pub])))}
+    pub_rows = []
+    for x in pub:
+        a, c, cl = accs[x.account_id], camps[x.campaign_id], clips.get(x.clip_id)
+        title = f"<div class=note>Tytuł YT: {_esc(youtube_title(cl))}</div>" if cl and x.platform == "youtube" else ""
+        pub_rows.append(
+            f"<tr><td>#{x.id}</td><td>{_esc(x.platform)}<div class=note>@{_esc(a.username or a.label)}</div></td>"
+            f"<td>{_esc(c.name[:50])}</td><td><a href='/clip/{x.clip_id}.mp4' download>⬇ pobierz</a></td>"
+            f"<td><textarea rows=3 cols=34 readonly onclick='this.select()'>{_esc(x.caption)}</textarea>{title}</td>"
+            f"<td><form method=post action='/todo/posted/{x.id}'><input name=url placeholder='link do posta' size=22 required>"
+            f" <button>Opublikowane</button></form></td></tr>")
+    sub_rows = []
+    for x in sub:
+        c = camps[x.campaign_id]
+        dl = f"{x.submission_deadline_at:%d.%m %H:%M} UTC" if x.submission_deadline_at else "wg briefu"
+        sub_rows.append(
+            f"<tr><td>#{x.id}</td><td><a href='{_esc(x.published_url)}' target=_blank rel=noopener>post</a></td>"
+            f"<td><a href='{_esc(c.url)}' target=_blank rel=noopener>{_esc(c.name[:50])}</a><div class=note>{_esc(c.marketplace)}</div></td>"
+            f"<td><b>{dl}</b></td><td><form method=post action='/todo/submitted/{x.id}'><button>Zgłoszone</button></form></td></tr>")
+    appr_rows = [f"<tr><td>#{p.id}</td><td>{_esc(p.kind)}</td><td>{_esc(p.summary)}</td>"
+                 f"<td><form method=post action='/action/approval/{p.id}' style='display:inline'>"
+                 f"<button name=decision value=approved>Zgoda</button> <button class=bad name=decision value=rejected>Odrzuć</button>"
+                 f"</form></td></tr>" for p in appr]
+    empty = lambda n: f"<tr><td colspan={n} class=note>Nic do zrobienia.</td></tr>"  # noqa: E731
+    return f"""
+{f"<div class=html>{_esc(msg)}</div>" if msg else ""}
+<section><h2>1. Do opublikowania ({len(pub)})</h2><div class=note>Pobierz klip, wrzuć na wskazane konto z tym opisem,
+wklej link do posta. (Te same pliki przychodzą też na Telegram.)</div>
+<table><tr><th>#</th><th>Konto</th><th>Kampania</th><th>Plik</th><th>Opis (kliknij = zaznacz)</th><th>Link</th></tr>
+{''.join(pub_rows) or empty(6)}</table></section>
+<section><h2>2. Do zgłoszenia w marketplace ({len(sub)})</h2><div class=note>Wklej link posta w kampanii przed terminem.</div>
+<table><tr><th>#</th><th>Post</th><th>Kampania</th><th>Termin</th><th></th></tr>{''.join(sub_rows) or empty(5)}</table></section>
+<section><h2>3. Zgody ({len(appr)})</h2><table>{''.join(appr_rows) or empty(4)}</table></section>
+"""
+
+
+@router.post("/todo/posted/{sid}")
+async def todo_posted(sid: int, request: Request, _: None = Depends(_auth_dep())):
+    from ..models import Submission
+    from ..pipeline import mark_published
+    url = str((await request.form()).get("url", "")).strip()
+    if not url.startswith("https://"):
+        return RedirectResponse("/s/todo?msg=Link musi zaczynać się od https://", status_code=303)
+    with session() as s:
+        x = s.get(Submission, sid)
+        try:
+            mark_published(s, x, url, "confirmed by owner via dashboard")
+        except ValueError as e:
+            return RedirectResponse(f"/s/todo?msg={_esc(str(e))}", status_code=303)
+    return RedirectResponse(f"/s/todo?msg=#{sid} opublikowane — teraz zgłoś go w kampanii.", status_code=303)
+
+
+@router.post("/todo/submitted/{sid}")
+def todo_submitted(sid: int, _: None = Depends(_auth_dep())):
+    from ..models import Submission
+    from ..pipeline import mark_submitted
+    with session() as s:
+        mark_submitted(s, s.get(Submission, sid), "confirmed by owner via dashboard")
+    return RedirectResponse(f"/s/todo?msg=#{sid} zgłoszone. Fabryka śledzi wyświetlenia.", status_code=303)
+
+
+def todo_count() -> int:
+    from ..models import Approval, Submission
+    from sqlalchemy import func
+    with session() as s:
+        return (s.scalar(select(func.count()).select_from(Submission).where(
+            Submission.status.in_(["ready_to_publish", "awaiting_submission"]))) or 0) + \
+            (s.scalar(select(func.count()).select_from(Approval).where(Approval.status == "pending")) or 0)

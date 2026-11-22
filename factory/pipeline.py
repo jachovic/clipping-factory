@@ -135,7 +135,7 @@ def plan_submissions(s: Session, clip: Clip) -> list[Submission]:
         if exists:
             continue
         sub = Submission(campaign_id=c.id, marketplace=c.marketplace, clip_id=clip.id, account_id=a.id,
-                         platform=a.platform, status="ready_to_publish", caption=clip.caption,
+                         platform=a.platform, status="ready_to_publish", caption=qc.platform_caption(a.platform, clip, c),
                          scheduled_for=next_slot(s, a))
         s.add(sub)
         s.flush()
@@ -170,9 +170,14 @@ def publish(s: Session, submission_id: int) -> dict[str, Any]:
         return {"published": res.url}
     if res.manual_task:
         sub.last_error = ""
-        notify(s, "publish_task", f"PUBLISH #{sub.id} on {a.platform}/{a.username or a.label} for '{c.name}'\n"
-                                  f"File: {clip.path}\nCaption:\n{sub.caption}\n\nAfter posting reply: "
-                                  f"/posted {sub.id} <post-url>")
+        text = (f"PUBLISH #{sub.id} on {a.platform}/@{a.username or a.label} — '{c.name}'\n"
+                + (f"Title: {qc.youtube_title(clip)}\n" if a.platform == "youtube" else "")
+                + f"Caption (copy):\n{sub.caption}\n\nAfter posting reply: /posted {sub.id} <post-url>")
+        from .notify import telegram_send_video
+        if not telegram_send_video(Path(clip.path), text):
+            notify(s, "publish_task", text + f"\nFile: {clip.path}")
+        else:
+            audit(s, "notify", "notify:publish_task", "submission", sub.id, sent_video=True)
         return {"manual": True}
     sub.last_error = res.error
     notify(s, "publish_failed", f"Publishing #{sub.id} failed: {res.error[:200]}")

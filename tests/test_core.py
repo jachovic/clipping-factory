@@ -328,3 +328,34 @@ def test_upload_source_goes_to_inbox(s):
     assert "wideo" in bad.headers["location"]
     s.expire_all()
     assert s.query(Job).filter(Job.kind == "inbox").count() >= 1
+
+
+def test_platform_captions_keep_mandatory_items():
+    from factory.qc import platform_caption, youtube_title
+    c = Campaign(required_hashtags=["ad", "brandx"], required_tags=["brand"], required_disclosures=["#sponsored"])
+    clip = Clip(hook="This is an extremely long hook " * 20)
+    x = platform_caption("x", clip, c, ["#gaming", "#viral", "#fyp"])
+    assert len(x) <= 280 and all(t in x for t in ("#ad", "#brandx", "@brand", "#sponsored"))
+    yt = platform_caption("youtube", clip, c)
+    assert "#shorts" in yt
+    assert len(youtube_title(clip)) <= 100
+    assert platform_caption("tiktok", Clip(hook="Hi"), None) == "Hi"
+
+
+def test_todo_page_flow(s):
+    from fastapi.testclient import TestClient
+    from factory.dashboard.app import app
+    from factory.pipeline import plan_submissions
+    c, clip = _published_setup(s)
+    sub = plan_submissions(s, clip)[0]
+    s.commit()
+    client = TestClient(app)
+    page = client.get("/s/todo").text
+    assert f"#{sub.id}" in page and "Opublikowane" in page
+    r = client.post(f"/todo/posted/{sub.id}", data={"url": "https://www.tiktok.com/@a/video/9"}, follow_redirects=False)
+    assert r.status_code == 303
+    s.expire_all()
+    assert s.get(Submission, sub.id).status == "awaiting_submission"
+    client.post(f"/todo/submitted/{sub.id}", follow_redirects=False)
+    s.expire_all()
+    assert s.get(Submission, sub.id).status == "submitted"

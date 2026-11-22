@@ -36,6 +36,36 @@ def build_caption(clip: Clip, campaign: Campaign | None, base: str = "") -> str:
     return "\n".join(p for p in parts if p).strip()
 
 
+# Per-platform limits. Mandatory items (campaign hashtags, mentions, disclosures) are never cut;
+# only the hook text and optional hashtags are shortened.
+PLATFORM_LIMITS = {"tiktok": (2200, 5), "instagram": (2200, 10), "youtube": (5000, 3), "x": (280, 2),
+                   "facebook": (2200, 5)}
+
+
+def platform_caption(platform: str, clip: Clip, campaign: Campaign | None, extra_tags: list[str] | None = None) -> str:
+    limit, max_optional = PLATFORM_LIMITS.get(platform, (2200, 5))
+    mandatory = []
+    if campaign:
+        mandatory += [t if t.startswith("@") else f"@{t}" for t in (campaign.required_tags or [])]
+        mandatory += [t if t.startswith("#") else f"#{t}" for t in (campaign.required_hashtags or [])]
+        mandatory += list(campaign.required_disclosures or [])
+    have = {m.lower() for m in mandatory}
+    optional = [t for t in (extra_tags or []) if t.lower() not in have][:max_optional]
+    if platform == "youtube" and "#shorts" not in have:
+        optional = ["#shorts"] + optional[: max(0, max_optional - 1)]
+    tail = " ".join(mandatory + optional)
+    room = limit - len(tail) - 1
+    hook = (clip.hook or "").strip()
+    if len(hook) > room:
+        hook = hook[: max(0, room - 1)].rsplit(" ", 1)[0] + "…" if room > 10 else ""
+    return (hook + ("\n" if hook and tail else "") + tail).strip()
+
+
+def youtube_title(clip: Clip) -> str:
+    t = (clip.hook or "Clip").strip()
+    return (t if len(t) <= 90 else t[:89].rsplit(" ", 1)[0] + "…") + " #shorts"
+
+
 def run_qc(s: Session, clip: Clip, *, account_id: int | None = None) -> dict[str, Any]:
     campaign = s.get(Campaign, clip.campaign_id) if clip.campaign_id else None
     src = s.get(SourceAsset, clip.source_id)

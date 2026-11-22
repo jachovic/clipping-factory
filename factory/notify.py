@@ -35,6 +35,28 @@ def telegram_send(text: str, chat_id: str | None = None) -> bool:
         return False
 
 
+def telegram_send_video(path, caption: str) -> bool:
+    """Send the clip itself to the owner (Bot API upload limit 50 MB). Caption >1024 chars goes as a follow-up."""
+    from pathlib import Path as _P
+    token, chat = secret("TELEGRAM_BOT_TOKEN"), settings.telegram_owner_id
+    p = _P(path)
+    if not token or not chat or not p.exists() or p.stat().st_size > 49 * 1024 * 1024:
+        return False
+    short = caption if len(caption) <= 1000 else caption[:990] + "…"
+    try:
+        with p.open("rb") as fh:
+            r = httpx.post(f"https://api.telegram.org/bot{token}/sendVideo", timeout=300,
+                           data={"chat_id": chat, "caption": short, "supports_streaming": "true"},
+                           files={"video": (p.name, fh, "video/mp4")})
+        if r.status_code != 200:
+            return False
+        if len(caption) > 1000:
+            telegram_send(caption)
+        return True
+    except httpx.HTTPError:
+        return False
+
+
 def notify(s: Session, kind: str, text: str) -> bool:
     window = 0 if kind in URGENT else THROTTLE_MIN.get(kind, 30)
     if window:
