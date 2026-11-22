@@ -312,7 +312,12 @@ def fingerprint_distance(a: str, b: str) -> float:
 def produce_local(s: Session, src: SourceAsset, campaign: Campaign | None, n: int = 2,
                   variant: str = "v1", style: dict[str, Any] | None = None) -> list[Clip]:
     transcribe(s, src, language=(campaign.language if campaign and campaign.language else None))
-    moments = detect_moments(src, campaign, n=n)
+    from . import ai_rank
+    if ai_rank.enabled():
+        candidates = detect_moments(src, campaign, n=ai_rank.MAX_CANDIDATES)
+        moments = ai_rank.rerank(s, campaign, candidates, n)
+    else:
+        moments = detect_moments(src, campaign, n=n)
     clips = []
     for idx, m in enumerate(moments, 1):
         clip = Clip(campaign_id=campaign.id if campaign else None, source_id=src.id, engine="local",

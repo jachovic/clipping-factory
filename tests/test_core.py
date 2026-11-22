@@ -359,3 +359,33 @@ def test_todo_page_flow(s):
     client.post(f"/todo/submitted/{sub.id}", follow_redirects=False)
     s.expire_all()
     assert s.get(Submission, sub.id).status == "submitted"
+
+
+def test_ai_rerank_with_fake_client(s):
+    import json as _json
+    from types import SimpleNamespace as NS
+    from factory import ai_rank
+    from factory.production import Moment
+
+    cands = [Moment(0, 30, f"Excerpt number {i}.", [], score=50.0 + i) for i in range(4)]
+    reply = {"rankings": [{"id": 0, "score": 95, "hook": "Why nobody tells you this", "reason": "strong"},
+                          {"id": 3, "score": 0, "hook": "x", "reason": "breaks brief"}]}
+
+    class FakeBeta:
+        def __init__(self):
+            self.messages = self
+            self.kwargs = None
+
+        def create(self, **kw):
+            self.kwargs = kw
+            return NS(stop_reason="end_turn", content=[NS(type="text", text=_json.dumps(reply))],
+                      usage=NS(input_tokens=1000, output_tokens=500))
+
+    fake = NS(beta=FakeBeta())
+    out = ai_rank.rerank(s, None, cands, 2, client=fake)
+    assert out[0].hook == "Why nobody tells you this"          # AI favourite promoted
+    assert all(m.score > 0 for m in out) and cands[3] not in out  # brief-breaking excerpt dropped
+    assert fake.beta.kwargs["model"] == "claude-opus-5-5"
+    assert fake.beta.kwargs["output_config"]["format"]["type"] == "json_schema"
+    s.flush()
+    assert s.query(LedgerEntry).filter(LedgerEntry.category == "ai_api").one().amount_usd == 0.014

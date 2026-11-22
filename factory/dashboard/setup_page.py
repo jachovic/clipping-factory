@@ -30,6 +30,9 @@ FIELDS: list[tuple[str, str, str, bool]] = [
     ("MONTHLY_SPEND_LIMIT_USD", "Limit wydatków miesięcznie (USD)", "Domyślnie 60.", False),
     ("CRAYO_TEST_CLIP_CAP", "Limit klipów testowych Crayo",
      "Ile klipów Crayo zrobi zanim poprosi o zgodę na więcej. Domyślnie 2.", False),
+    ("ANTHROPIC_API_KEY", "Anthropic API key (opcjonalnie)",
+     "Włącza ocenę momentów przez AI (Claude). console.anthropic.com → API Keys. Koszt ok. $0.05–0.15 na film źródłowy, "
+     "liczony w limicie wydatków.", True),
     ("WHOP_USER_TOKEN", "Whop user token (opcjonalnie)", "Tylko dla zadań Whop bounties — można pominąć.", True),
     ("GOOGLE_CLIENT_ID", "Google OAuth client ID (opcjonalnie)", "Tylko do automatycznej publikacji na YouTube.", False),
     ("GOOGLE_CLIENT_SECRET", "Google OAuth client secret (opcjonalnie)", "", True),
