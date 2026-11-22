@@ -80,8 +80,13 @@ def h_inbox(s: Session, job: Job) -> dict:
             src = ingest_source(s, f, rights=rights, campaign_id=c.id)
             done = d / "ingested"
             done.mkdir(exist_ok=True)
-            f.rename(done / f.name)
-            src.path = str(done / f.name)
+            target = done / f.name
+            k = 1
+            while target.exists():          # Windows cannot rename onto an existing file
+                target = done / f"{f.stem}-{k}{f.suffix}"
+                k += 1
+            f.rename(target)
+            src.path = str(target)
             enqueue(s, "produce_clip", {"campaign_id": c.id, "source_id": src.id, "n": 2},
                     dedupe_key=f"produce:{c.id}:{src.id}")
             n += 1

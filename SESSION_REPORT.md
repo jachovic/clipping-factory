@@ -1,6 +1,15 @@
 # Work report — sessions 1–4 (2026-11-20 → 2026-11-22)
 
-## Session 4 (latest)
+## Session 5 (launch prep)
+- `START_TUTAJ.md` rewritten as the full step-by-step launch guide (prep before 10:00, launch, daily routine).
+- `factory doctor` + "Pełna diagnostyka" button: Python, FFmpeg/libass, DB, disk, speech model, OpenCV, internet to
+  every service, keys and accounts — Polish report.
+- Per-campaign rules form (hashtags, @mentions, disclosure, min/max length, "I read the rules" = publish approval);
+  saving re-captions and re-QCs unpublished clips.
+- Windows hardening: background runner with auto-restart, UTF-8 mode, model pre-download during install,
+  safe renames, URUCHOM / ZATRZYMAJ / DIAGNOSTYKA double-click files. 34 tests.
+
+## Session 4
 - **Setup page** (⚙ Konfiguracja): paste keys → saved to `.env`, applied live, tested; Telegram ID auto-detect;
   11 accounts editable; per-campaign source upload or link.
 - **To-do page** (✅ Do zrobienia): download clip, copy platform-specific caption, mark posted / submitted, approvals.

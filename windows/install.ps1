@@ -42,10 +42,17 @@ if (-not (Test-Path .env)) {
   Copy-Item .env.example .env
   icacls .env /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
 }
+$env:PYTHONUTF8 = "1"
+[Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "User")
 .\.venv\Scripts\factory.exe init
 
+Write-Host "Pobieram model rozpoznawania mowy (~140 MB) i sprawdzam system..."
+$env:HF_HUB_DISABLE_XET = "1"
+.\.venv\Scripts\factory.exe doctor --download-model
+
 # Autostart at logon + restart on failure
-$action  = New-ScheduledTaskAction -Execute "$root\windows\start.bat" -WorkingDirectory $root
+$action  = New-ScheduledTaskAction -Execute "powershell.exe" -WorkingDirectory $root `
+             -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$root\windows\run-hidden.ps1`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $set     = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
              -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries

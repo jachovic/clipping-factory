@@ -58,6 +58,21 @@ def missing_essentials() -> list[str]:
     return out
 
 
+def _rules_row(c) -> str:
+    """Per-campaign form for rules that are only visible after login on the marketplace."""
+    ok = "✅ zasady potwierdzone" if c.brief_complete else "⚠ przeczytaj pełne zasady po zalogowaniu i potwierdź"
+    return (f"<tr><td></td><td colspan=5><form method=post action='/campaign-rules/{c.id}' "
+            f"style='display:flex;flex-wrap:wrap;gap:6px;align-items:center'>"
+            f"<b class=note>{ok}</b>"
+            f"<input name=hashtags value='{_esc(' '.join(c.required_hashtags or []))}' placeholder='wymagane #hashtagi' size=22>"
+            f"<input name=mentions value='{_esc(' '.join(c.required_tags or []))}' placeholder='wymagane @oznaczenia' size=18>"
+            f"<input name=disclosure value='{_esc(' '.join(c.required_disclosures or []))}' placeholder='dopisek np. #ad' size=12>"
+            f"<input name=min_s value='{_esc(c.min_duration_s or '')}' placeholder='min s' size=4>"
+            f"<input name=max_s value='{_esc(c.max_duration_s or '')}' placeholder='max s' size=4>"
+            f"<label><input type=checkbox name=rules_ok value=1 {'checked' if c.brief_complete else ''}> Przeczytałem zasady</label>"
+            f"<button>Zapisz zasady</button></form></td></tr>")
+
+
 def render(msg: str = "") -> str:
     import os
     rows = []
@@ -96,10 +111,14 @@ def render(msg: str = "") -> str:
             f"<td><form method=post action='/upload/{c.id}' enctype='multipart/form-data'>"
             f"<input type=file name=file accept='video/*' required> <button>Wgraj</button></form></td>"
             f"<td><form method=post action='/source/{c.id}'><input name=url placeholder='https://drive.google.com/...' size=24>"
-            f" <button>Pobierz</button></form></td></tr>" for c in sel) or \
+            f" <button>Pobierz</button></form></td></tr>"
+            + _rules_row(c) for c in sel) or \
             "<tr><td colspan=6 class=note>Jeszcze nic nie wybrano — pierwszy cykl wyszukiwania trwa kilka minut.</td></tr>"
     int_rows = "".join(f"<tr><td>{i.label}</td><td><b>{i.status}</b></td><td class=note>{_esc(i.account_identifier)}</td>"
                        f"<td class=note>{_esc(i.last_error)}</td></tr>" for i in integ)
+    doctor_file = settings.data_dir / "diagnostyka.txt"
+    doctor_block = (f"<pre style='padding:0 12px 12px;white-space:pre-wrap'>{_esc(doctor_file.read_text(encoding='utf-8'))}</pre>"
+                    if doctor_file.exists() else "")
     steps = missing_essentials()
     banner = ("<div class=html style='border-color:var(--good)'>✅ Wszystko najważniejsze jest skonfigurowane. "
               "Fabryka działa sama — sprawdzaj Telegram.</div>") if not steps else \
@@ -129,7 +148,9 @@ Konta bez nazwy liczą się jako „połowicznie dostępne” przy wyborze kampa
 
 <section><h2>4. Status połączeń</h2><table>
 <tr><th>Usługa</th><th>Status</th><th>Info</th><th>Błąd</th></tr>{int_rows}</table>
-<div style='padding:10px 12px'><form method=post action='/setup/test' style='display:inline'><button>Testuj połączenia</button></form></div>
+<div style='padding:10px 12px'><form method=post action='/setup/test' style='display:inline'><button>Testuj połączenia</button></form>
+<form method=post action='/setup/doctor' style='display:inline'><button>Pełna diagnostyka</button></form></div>
+{doctor_block}
 </section>
 <div class=note>Klucze są zapisywane w pliku <code>.env</code> na tym komputerze i nigdy nie są tu wyświetlane.</div>
 """
@@ -322,3 +343,65 @@ def todo_count() -> int:
         return (s.scalar(select(func.count()).select_from(Submission).where(
             Submission.status.in_(["ready_to_publish", "awaiting_submission"]))) or 0) + \
             (s.scalar(select(func.count()).select_from(Approval).where(Approval.status == "pending")) or 0)
+
+
+@router.post("/setup/doctor")
+def doctor(_: None = Depends(_auth_dep())):
+    from ..doctor import render_text, run_checks
+    text = render_text(run_checks(download_model=False, network=True))
+    (settings.data_dir / "diagnostyka.txt").write_text(text, encoding="utf-8")
+    first = "Wszystko gotowe do startu." if "WSZYSTKO GOTOWE" in text else "Są rzeczy do naprawy — zobacz diagnostykę w sekcji 4."
+    return RedirectResponse(f"/s/setup?msg={first}", status_code=303)
+
+
+@router.post("/campaign-rules/{campaign_id}")
+async def campaign_rules(campaign_id: int, request: Request, _: None = Depends(_auth_dep())):
+    from ..models import Approval, Campaign, Clip, Submission, now
+    from ..qc import build_caption, platform_caption, run_qc
+    form = await request.form()
+
+    def tags(field: str, prefix: str) -> list[str]:
+        return [t if t.startswith(prefix) else prefix + t
+                for t in str(form.get(field, "")).replace(",", " ").split() if t.strip(prefix)]
+
+    def num(field: str) -> float | None:
+        try:
+            v = float(str(form.get(field, "")).replace(",", "."))
+            return v if v > 0 else None
+        except ValueError:
+            return None
+    with session() as s:
+        c = s.get(Campaign, campaign_id)
+        if c is None:
+            return RedirectResponse("/s/setup?msg=Nie ma takiej kampanii.", status_code=303)
+        c.required_hashtags = tags("hashtags", "#")
+        c.required_tags = tags("mentions", "@")
+        d = str(form.get("disclosure", "")).strip()
+        c.required_disclosures = [d] if d else []
+        c.min_duration_s, c.max_duration_s = num("min_s"), num("max_s")
+        if form.get("rules_ok"):
+            c.brief_complete = True
+            key = f"campaign {c.id} rules"
+            ap = s.scalar(select(Approval).where(Approval.kind == "publish_unclear_rules", Approval.summary == key))
+            if ap is None:
+                s.add(Approval(kind="publish_unclear_rules", summary=key, status="approved", decided_at=now()))
+            else:
+                ap.status, ap.decided_at = "approved", now()
+        # re-apply the rules to clips that are not published yet
+        fixed = blocked = 0
+        for sub in s.scalars(select(Submission).where(Submission.campaign_id == c.id,
+                                                      Submission.status == "ready_to_publish")):
+            clip = s.get(Clip, sub.clip_id)
+            clip.caption = build_caption(clip, c)
+            report = run_qc(s, clip)
+            if report["decision"] in ("ready", "acceptable"):
+                clip.status = "ready_to_publish"
+                sub.caption = platform_caption(sub.platform, clip, c)
+                fixed += 1
+            else:
+                sub.status, sub.last_error = "planned", "QC after rule update: " + ", ".join(report["mandatory_failures"])
+                blocked += 1
+        audit(s, "owner", "campaign_rules_saved", "campaign", c.id, confirmed=bool(form.get("rules_ok")))
+    extra = f" Zaktualizowano {fixed} klipów" + (f", {blocked} odrzucone przez nowe zasady." if blocked else ".")
+    return RedirectResponse(f"/s/setup?msg=Zasady kampanii {campaign_id} zapisane.{extra if fixed or blocked else ''}",
+                            status_code=303)

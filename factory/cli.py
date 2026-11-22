@@ -46,6 +46,9 @@ def main(argv: list[str] | None = None) -> None:
     w.add_argument("--port", type=int, default=8080)
     r = sub.add_parser("run", help="all-in-one: worker + Telegram bot (if configured) + dashboard (for a single PC)")
     r.add_argument("--port", type=int, default=8080)
+    dr = sub.add_parser("doctor", help="self-check: tools, model, internet, keys (Polish report)")
+    dr.add_argument("--download-model", action="store_true", help="download the speech model now")
+    dr.add_argument("--offline", action="store_true", help="skip internet checks")
     sub.add_parser("report", help="print the daily report")
     sub.add_parser("backup", help="back up the database now")
     a = p.parse_args(argv)
@@ -131,6 +134,12 @@ def main(argv: list[str] | None = None) -> None:
         uvicorn.run("factory.dashboard.app:app", host=a.host, port=a.port, proxy_headers=True)
     elif a.cmd == "run":
         run_all(a.port)
+    elif a.cmd == "doctor":
+        from .doctor import render_text, run_checks
+        text = render_text(run_checks(download_model=a.download_model, network=not a.offline))
+        print(text)
+        from .config import settings as _st
+        (_st.data_dir / "diagnostyka.txt").write_text(text, encoding="utf-8")
     elif a.cmd == "report":
         from .manager import daily_report
         with session() as s:

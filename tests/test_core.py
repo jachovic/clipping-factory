@@ -389,3 +389,36 @@ def test_ai_rerank_with_fake_client(s):
     assert fake.beta.kwargs["output_config"]["format"]["type"] == "json_schema"
     s.flush()
     assert s.query(LedgerEntry).filter(LedgerEntry.category == "ai_api").one().amount_usd == 0.014
+
+
+def test_doctor_offline_report(s):
+    from factory.doctor import render_text, run_checks
+    checks = run_checks(download_model=False, network=False)
+    names = {c.name for c in checks}
+    assert {"Python", "FFmpeg", "Baza danych", "Klucz Crayo", "Bot Telegram"} <= names
+    text = render_text(checks)
+    assert "crayo_sk" not in text and ("GOTOWE" in text or "Do naprawy" in text)
+
+
+def test_campaign_rules_form_updates_captions_and_approves(s):
+    from fastapi.testclient import TestClient
+    from factory.dashboard.app import app
+    from factory.models import Approval
+    from factory.ops import is_approved
+    from factory.pipeline import plan_submissions
+    c, clip = _published_setup(s)
+    c.brief_complete, c.selected = False, True
+    clip.path = ""          # no media in this unit test -> QC rejects; we check the rule plumbing
+    subs = plan_submissions(s, clip)
+    s.commit()
+    client = TestClient(app)
+    assert "Przeczytałem zasady" in client.get("/s/setup").text
+    r = client.post(f"/campaign-rules/{c.id}", data={"hashtags": "brandx, #clip", "mentions": "brand",
+                                                    "max_s": "45", "rules_ok": "1"}, follow_redirects=False)
+    assert r.status_code == 303
+    s.expire_all()
+    c2 = s.get(Campaign, c.id)
+    assert c2.required_hashtags == ["#brandx", "#clip"] and c2.required_tags == ["@brand"]
+    assert c2.max_duration_s == 45 and c2.brief_complete
+    assert is_approved(s, "publish_unclear_rules", f"campaign {c.id} rules")
+    assert s.get(Submission, subs[0].id).status == "planned"   # broken clip is held back, not published
