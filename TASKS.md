@@ -1,6 +1,8 @@
 # TASKS
 
-## For you — while you wait (ordered by impact, none need Claude)
+## For you — short version: see START_TUTAJ.md (install → paste keys → enter account names)
+
+## For you — detailed (ordered by impact, none need Claude)
 1. **Install on your PC** (15 min): download the repo ZIP from GitHub → unzip to `C:\clipping-factory` → in PowerShell
    there: `powershell -ExecutionPolicy Bypass -File windows\install.ps1` → open http://127.0.0.1:8080.
    If anything errors, save the message for the next session.

@@ -1,4 +1,18 @@
-# Work report — sessions 1–3 (2026-11-20 → 2026-11-21)
+# Work report — sessions 1–4 (2026-11-20 → 2026-11-22)
+
+## Session 4 (latest)
+- **Setup page** (⚙ Konfiguracja): paste keys → saved to `.env`, applied live, tested; Telegram ID auto-detect;
+  11 accounts editable; per-campaign source upload or link.
+- **To-do page** (✅ Do zrobienia): download clip, copy platform-specific caption, mark posted / submitted, approvals.
+- **Clips delivered to your phone** via Telegram (the video file itself + caption).
+- **Per-platform captions** (X 280 chars, YouTube `#shorts` + title) that never drop required campaign tags.
+- **Optional AI moment ranking** with Claude (Anthropic key on the setup page), spend-guarded and costed.
+- **Windows one-click install** (`windows\INSTALUJ.bat`), desktop shortcut, opens setup when done.
+- **Full rehearsal passed**: accounts → upload → automatic clips (QC 100) → 4 publish tasks with correct captions →
+  posted → 24 h deadline set → submitted. 30 automated tests.
+- Still unverified: Crayo, Telegram, Anthropic live calls (need your keys); the Windows installer on real Windows.
+
+# Sessions 1–3
 
 ## Where things stand
 - Code: https://github.com/jachovic/clipping-factory (`main`). 25 automated tests, run on every push by GitHub Actions.
