@@ -24,6 +24,22 @@ def audio_levels(path: str) -> tuple[float, float]:
     return (float(mean.group(1)) if mean else -99.0, float(peak.group(1)) if peak else -99.0)
 
 
+def visual_defects(path: str) -> tuple[float, float]:
+    """Seconds of black video and of frozen video in a clip (ffmpeg blackdetect / freezedetect)."""
+    err = run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-vf",
+               "blackdetect=d=0.3:pix_th=0.10,freezedetect=n=-60dB:d=1", "-an", "-f", "null", "-"]).stderr
+    black = sum(float(x) for x in re.findall(r"black_duration:\s*([\d.]+)", err))
+    frozen = sum(float(x) for x in re.findall(r"freeze_duration:\s*([\d.]+)", err))
+    starts = re.findall(r"freeze_start:\s*([\d.]+)", err)
+    ends = re.findall(r"freeze_end:\s*([\d.]+)", err)
+    if len(starts) > len(ends):   # a freeze lasting to the end of the clip is reported without an end
+        dur = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", err)
+        if dur:
+            total = int(dur.group(1)) * 3600 + int(dur.group(2)) * 60 + float(dur.group(3))
+            frozen += max(0.0, total - float(starts[-1]))
+    return black, frozen
+
+
 def build_caption(clip: Clip, campaign: Campaign | None, base: str = "") -> str:
     """Post caption: hook + required hashtags/tags/disclosures (mandatory items always included)."""
     parts = [base or clip.hook]
@@ -97,6 +113,11 @@ def run_qc(s: Session, clip: Clip, *, account_id: int | None = None) -> dict[str
         add("audio_not_silent", mean > -35, 30, f"mean {mean} dB", mandatory=True)
         add("audio_not_clipping", peak <= -0.5, 5, f"peak {peak} dB")
         add("audio_loudness", -22 <= mean <= -8, 5, f"mean {mean} dB")
+
+    # --- visual defects: black screens and frozen video (common when a stream cut goes wrong)
+    black, frozen = visual_defects(clip.path)
+    add("no_black_frames", black < 1.0, 20, f"{black:.1f}s black")
+    add("no_frozen_video", frozen < 2.0, 15, f"{frozen:.1f}s frozen")
 
     # --- captions (built from word timestamps; check coverage, sync and placement)
     words = (clip.qc_report or {}).get("words") or []

@@ -258,6 +258,41 @@ def _esc(t: str) -> str:
     return t.replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
+def subject_center_x(path: str, start: float, end: float, w: int, h: int, samples: int = 10) -> float | None:
+    """Horizontal position (0..1) of the main speaker's face across the moment, or None when there is no single
+    stable face (no face, several people, or the face moves a lot) -> caller falls back to the safe blurred fit."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None
+    det = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    sw = 640
+    sh = int(round(h * sw / w / 2) * 2)
+    xs, multi = [], 0
+    for k in range(samples):
+        t = start + (end - start) * (k + 0.5) / samples
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
+                              "-vf", f"scale={sw}:{sh},format=gray", "-f", "rawvideo", "-"], capture_output=True).stdout
+        if len(raw) != sw * sh:
+            continue
+        frame = np.frombuffer(raw, dtype=np.uint8).reshape(sh, sw)
+        faces = det.detectMultiScale(frame, scaleFactor=1.1, minNeighbors=6, minSize=(max(24, sh // 12),) * 2)
+        if len(faces) == 0:
+            continue
+        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+        if len(faces) > 1 and faces[1][2] * faces[1][3] > 0.5 * faces[0][2] * faces[0][3]:
+            multi += 1          # two similar-sized faces: a conversation -> don't crop one person out
+        x, y, fw, fh = faces[0]
+        xs.append((x + fw / 2) / sw)
+    if len(xs) < max(3, samples * 0.6) or multi > samples * 0.3:
+        return None
+    xs.sort()
+    med = xs[len(xs) // 2]
+    spread = xs[int(len(xs) * 0.9) - 1] - xs[int(len(xs) * 0.1)]
+    return med if spread < 0.2 else None
+
+
 def render_clip(src: SourceAsset, m: Moment, out_path: Path, *, hook: bool = True,
                 style: dict[str, Any] | None = None) -> Path:
     """Render a 1080x1920 H.264/AAC clip. Wide footage is fitted on a blurred fill (no subject cropped off);
@@ -270,7 +305,14 @@ def render_clip(src: SourceAsset, m: Moment, out_path: Path, *, hook: bool = Tru
     if v is None:
         raise RuntimeError("source has no video stream")
     w, h = int(v["width"]), int(v["height"])
-    if w / h > 0.7:  # landscape/square -> blurred background + fitted foreground
+    framing = style.get("framing", os.environ.get("CLIP_FRAMING", "auto"))   # auto | crop | fit
+    cx = subject_center_x(src.path, m.start, m.end, w, h) if (w / h > 0.7 and framing != "fit") else None
+    m.breakdown["framing"] = "face_crop" if cx is not None else ("fit" if w / h > 0.7 else "fill")
+    if cx is not None:  # one stable speaker -> full-screen 9:16 crop centred on the face
+        cw = int(h * 9 / 16) // 2 * 2
+        x = int(min(max(cx * w - cw / 2, 0), w - cw))
+        vf = f"crop={cw}:{h}:{x}:0,scale=1080:1920,setsar=1,ass={_ff_path(ass)},fps=30,format=yuv420p"
+    elif w / h > 0.7:  # landscape/square without a single speaker -> blurred background + fitted foreground
         vf = ("split=2[bg][fg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
               "boxblur=24:2,eq=brightness=-0.08[bgb];[fg]scale=1080:-2[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2-120,"
               f"ass={_ff_path(ass)},fps=30,format=yuv420p")

@@ -67,3 +67,16 @@ def test_duplicate_detection(s, source):
     qc.run_qc(s, a)
     rep = qc.run_qc(s, b)
     assert "not_duplicate" in rep["mandatory_failures"]
+
+
+def test_no_face_falls_back_to_fit(s, source):
+    from factory.production import subject_center_x
+    assert subject_center_x(str(source), 0, 20, 1280, 720) is None   # test pattern has no face
+
+
+def test_visual_defects_detects_black(tmp_path):
+    p = tmp_path / "black.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:d=3",
+                    "-c:v", "libx264", "-preset", "ultrafast", str(p)], check=True)
+    black, frozen = qc.visual_defects(str(p))
+    assert black >= 2.5 and frozen >= 1.0
