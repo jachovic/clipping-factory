@@ -83,8 +83,24 @@ def parse_detail(html: str, c: CampaignData) -> CampaignData:
         types = [t.get("id") for t in ((conf.get("content") or {}).get("contentTypes") or []) if t.get("id")]
         if types:
             c.raw["content_types"] = types
+        base = conf.get("payoutModel") or []
+        geo = conf.get("geoRates") or {}
+        if geo.get("restOfWorld"):
+            # Geo-priced campaign: the base rate is 0 and real rates are per audience country.
+            # Use "rest of world" rates (our audience) and record the country exceptions.
+            limits = {m.get("platform"): m for m in base}
+            base = [{**limits.get(r.get("platform"), {}), "platform": r.get("platform"), "rate": r.get("rate")}
+                    for r in geo["restOfWorld"]]
+            tiers = {}
+            for t in geo.get("tiers") or []:
+                tiers.setdefault(t.get("label") or ",".join(t.get("countries") or []), []).append(
+                    f"{t.get('platform')} ${(t.get('rate') or 0) / 100:.2f}")
+            if tiers:
+                c.eligibility = "Different rates by viewer country: " + "; ".join(
+                    f"{k}: {', '.join(v)}" for k, v in tiers.items())
+            c.raw["geo_rates"] = geo
         # a platform entry with rate 0 is not paid -> ignore it entirely
-        models = [m for m in (conf.get("payoutModel") or []) if (m.get("rate") or 0) > 0 or c.payment_model != "cpm"]
+        models = [m for m in base if (m.get("rate") or 0) > 0 or c.payment_model != "cpm"]
         if models:
             rates = [m["rate"] / 100 for m in models if m.get("rate") is not None]
             if rates and c.payment_model == "cpm":

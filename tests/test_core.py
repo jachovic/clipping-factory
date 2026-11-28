@@ -422,3 +422,16 @@ def test_campaign_rules_form_updates_captions_and_approves(s):
     assert c2.max_duration_s == 45 and c2.brief_complete
     assert is_approved(s, "publish_unclear_rules", f"campaign {c.id} rules")
     assert s.get(Submission, subs[0].id).status == "planned"   # broken clip is held back, not published
+
+
+def test_content_rewards_geo_rates():
+    c = CampaignData(marketplace="content_rewards", external_id="geo", name="Geo", url="u", payment_model="cpm")
+    detail = {"banner": "x", "id": "geo", "status": "active", "configuration": {
+        "payoutModel": [{"platform": "tiktok", "rate": 0, "minPayout": 200, "maxPayout": 60000}],
+        "geoRates": {"restOfWorld": [{"platform": "tiktok", "rate": 200}, {"platform": "instagram", "rate": 150}],
+                     "tiers": [{"countries": ["IN"], "label": "India", "platform": "tiktok", "rate": 0}]}},
+        "briefCounts": {}}
+    c = parse_detail(_rsc_page(detail), c)
+    assert c.platforms == ["instagram", "tiktok"] and c.cpm_usd == 1.5 and c.cpm_max_usd == 2.0
+    assert c.min_payout_usd == 2.0 and c.max_payout_per_video_usd == 600.0
+    assert "India" in c.eligibility
