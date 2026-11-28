@@ -75,10 +75,11 @@ Fabryka wybiera do 4 najlepszych kampanii i przysyła je też na Telegram. Dla *
 1. Kliknij nazwę kampanii → **dołącz** (jeśli wymaga zgłoszenia, aplikuj i poczekaj na akceptację).
 2. **Przeczytaj pełne zasady** (część jest widoczna tylko po zalogowaniu): wymagane hashtagi, oznaczenia (@marka),
    dopiski (#ad), długość klipu, z którego materiału wolno ciąć.
-3. Wpisz je w wierszu pod kampanią → zaznacz **Przeczytałem zasady** → **Zapisz zasady**.
+3. W wierszu pod kampanią fabryka **wstępnie wypełniła** to, co znalazła w publicznym opisie. Popraw / dopisz według
+   pełnych zasad → zaznacz **Przeczytałem zasady** → **Zapisz zasady**.
    (Bez tego fabryka nie wypuści klipów do publikacji — to celowe zabezpieczenie.)
-4. Pobierz **oficjalny materiał źródłowy** z briefu (sekcja *Reference Materials* / linki w opisie) →
-   **Wgraj** plik, albo wklej link (Google Drive / Dropbox) → **Pobierz**.
+4. **Materiał źródłowy:** jeśli brief ma link do Google Drive / Dropbox, fabryka pobierze go **sama** po kroku 3.
+   W przeciwnym razie pobierz materiał z *Reference Materials* i kliknij **Wgraj** (albo wklej link → **Pobierz**).
 
 Po 10–20 minutach na jeden film (zależnie od długości) klipy są gotowe.
 

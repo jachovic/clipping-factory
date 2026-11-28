@@ -60,7 +60,8 @@ def missing_essentials() -> list[str]:
 
 def _rules_row(c) -> str:
     """Per-campaign form for rules that are only visible after login on the marketplace."""
-    ok = "✅ zasady potwierdzone" if c.brief_complete else "⚠ przeczytaj pełne zasady po zalogowaniu i potwierdź"
+    ok = "✅ zasady potwierdzone" if c.brief_complete else \
+        "⚠ wstępnie wypełnione z opisu briefu — sprawdź z pełnymi zasadami po zalogowaniu i potwierdź"
     return (f"<tr><td></td><td colspan=5><form method=post action='/campaign-rules/{c.id}' "
             f"style='display:flex;flex-wrap:wrap;gap:6px;align-items:center'>"
             f"<b class=note>{ok}</b>"
@@ -379,7 +380,15 @@ async def campaign_rules(campaign_id: int, request: Request, _: None = Depends(_
         d = str(form.get("disclosure", "")).strip()
         c.required_disclosures = [d] if d else []
         c.min_duration_s, c.max_duration_s = num("min_s"), num("max_s")
+        fetched = 0
         if form.get("rules_ok"):
+            if not c.brief_complete:   # first confirmation: fetch direct-download footage linked in the brief
+                from ..ops import enqueue
+                for url in c.source_links or []:
+                    if any(h in url for h in ("drive.google.com", "dropbox.com")):
+                        if enqueue(s, "fetch_source", {"campaign_id": c.id, "url": url},
+                                   dedupe_key=f"fetch:{c.id}:{url}"):
+                            fetched += 1
             c.brief_complete = True
             key = f"campaign {c.id} rules"
             ap = s.scalar(select(Approval).where(Approval.kind == "publish_unclear_rules", Approval.summary == key))
@@ -403,5 +412,8 @@ async def campaign_rules(campaign_id: int, request: Request, _: None = Depends(_
                 blocked += 1
         audit(s, "owner", "campaign_rules_saved", "campaign", c.id, confirmed=bool(form.get("rules_ok")))
     extra = f" Zaktualizowano {fixed} klipów" + (f", {blocked} odrzucone przez nowe zasady." if blocked else ".")
+    if fetched:
+        extra += f" Pobieram {fetched} plik(i) źródłowe z linków w briefie."
+        fixed = fixed or 1
     return RedirectResponse(f"/s/setup?msg=Zasady kampanii {campaign_id} zapisane.{extra if fixed or blocked else ''}",
                             status_code=303)

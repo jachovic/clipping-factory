@@ -54,6 +54,54 @@ def detect_language(name: str, description: str) -> str:
     return best if scores[best] >= 2 else ""
 
 
+# ------------------------------------------------------------- brief rules
+_HASHTAG = re.compile(r"(?<![\w#&/])#([A-Za-z][A-Za-z0-9_]{1,39})\b")
+_MENTION = re.compile(r"(?<![\w@./])@([A-Za-z0-9_.]{2,30}[A-Za-z0-9_])")
+_UNIT = r"(s|sec|secs|seconds?|sek|sekund|min|mins|minutes?)"
+
+
+def _secs(n: str, unit: str) -> float:
+    return float(n) * (60 if unit.lower().startswith("min") else 1)
+
+
+def extract_rules(text: str) -> dict[str, Any]:
+    """Best-effort rules from a brief's text. Only a suggestion: the owner confirms on the setup page."""
+    t = text or ""
+    out: dict[str, Any] = {"hashtags": [], "mentions": [], "disclosures": [], "min_s": None, "max_s": None}
+    for h in _HASHTAG.findall(t):
+        tag = "#" + h
+        if tag.lower() in ("#ad", "#sponsored", "#partner", "#paidpartnership"):
+            if tag not in out["disclosures"]:
+                out["disclosures"].append(tag)
+        elif tag not in out["hashtags"]:
+            out["hashtags"].append(tag)
+    out["mentions"] = list(dict.fromkeys("@" + m for m in _MENTION.findall(t)))[:5]
+    low = t.lower()
+    m = re.search(rf"(\d{{1,3}})\s*(?:-|–|to)\s*(\d{{1,3}})\s*{_UNIT}\b", low)
+    if m:
+        out["min_s"], out["max_s"] = _secs(m.group(1), m.group(3)), _secs(m.group(2), m.group(3))
+    m = re.search(rf"(?:under|less than|max(?:imum)?|no longer than|at most|up to|shorter than)\s*(\d{{1,3}})\s*{_UNIT}\b", low)
+    if m and out["max_s"] is None:
+        out["max_s"] = _secs(m.group(1), m.group(2))
+    m = re.search(rf"(?:at least|minimum|min\.?|longer than|over)\s*(\d{{1,3}})\s*{_UNIT}\b", low)
+    if m and out["min_s"] is None:
+        out["min_s"] = _secs(m.group(1), m.group(2))
+    out["hashtags"] = out["hashtags"][:8]
+    return out
+
+
+def prefill_rules(c: Campaign) -> None:
+    """Suggest rules from the brief until the owner confirms them (never overwrites confirmed rules)."""
+    if c.brief_complete:
+        return
+    r = extract_rules(c.description)
+    c.required_hashtags = c.required_hashtags or r["hashtags"]
+    c.required_tags = c.required_tags or r["mentions"]
+    c.required_disclosures = c.required_disclosures or r["disclosures"]
+    c.min_duration_s = c.min_duration_s or r["min_s"]
+    c.max_duration_s = c.max_duration_s or r["max_s"]
+
+
 # ------------------------------------------------------------------- ingest
 def upsert_campaign(s: Session, d: CampaignData) -> tuple[Campaign, list[str]]:
     c = s.scalar(select(Campaign).where(Campaign.marketplace == d.marketplace,
@@ -89,6 +137,7 @@ def upsert_campaign(s: Session, d: CampaignData) -> tuple[Campaign, list[str]]:
                 s.add(CampaignEvent(campaign_id=c.id, kind="low_budget",
                                     detail={"available": c.budget_available_usd}))
                 events.append("low_budget")
+    prefill_rules(c)
     return c, events
 
 

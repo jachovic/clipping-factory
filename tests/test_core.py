@@ -435,3 +435,20 @@ def test_content_rewards_geo_rates():
     assert c.platforms == ["instagram", "tiktok"] and c.cpm_usd == 1.5 and c.cpm_max_usd == 2.0
     assert c.min_payout_usd == 2.0 and c.max_payout_per_video_usd == 600.0
     assert "India" in c.eligibility
+
+
+def test_extract_rules_from_brief():
+    r = camp.extract_rules("Clips must be 15-60 seconds. Use #GTA6 #KaiCenat and tag @reach. Add #ad. "
+                           "Email us at team@brand.com. See https://x.com/#anchor")
+    assert r["hashtags"] == ["#GTA6", "#KaiCenat"] and r["disclosures"] == ["#ad"]
+    assert r["mentions"] == ["@reach"]
+    assert (r["min_s"], r["max_s"]) == (15.0, 60.0)
+    assert camp.extract_rules("Keep it under 2 minutes")["max_s"] == 120.0
+
+
+def test_prefill_does_not_override_confirmed(s):
+    c, _ = camp.upsert_campaign(s, _cd(external_id="pf", description="Use #brandx, max 45 seconds"))
+    assert c.required_hashtags == ["#brandx"] and c.max_duration_s == 45
+    c.brief_complete, c.required_hashtags = True, ["#mine"]
+    camp.upsert_campaign(s, _cd(external_id="pf", description="Use #other"))
+    assert c.required_hashtags == ["#mine"]
